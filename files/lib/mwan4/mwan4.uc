@@ -297,7 +297,7 @@ function network_get_uptime(iface) { // ucode-lsp disable
 
 // ── Bit Manipulation ─────────────────────────────────────────────────
 
-function count_one_bits(n) {
+function count_one_bits(n) { // ucode-lsp disable
 	let count = 0;
 	n = +n;
 	while (n > 0) {
@@ -346,7 +346,7 @@ function uci_get_list(section, option) {
 	return [val];
 }
 
-function uci_get_bool(section, option, def) {
+function uci_get_bool(section, option, def) { // ucode-lsp disable
 	let val = uci_get(section, option);
 	if (val == null) return def || false;
 	return uci_bool(val);
