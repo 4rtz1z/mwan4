@@ -373,6 +373,7 @@ _ensure_init = function() {
 	if (!mwan4.mmx_mask) {
 		mwan4.mmx_mask = uci_get('globals', 'mwan4.mmx_mask') || '0x3F00';
 		mwan4.mmx_mask = lc(mwan4.mmx_mask);
+		mwan4.mmx_mask_inv = sprintf('0x%08x', 0xffffffff & ~(+mwan4.mmx_mask));
 	}
 
 	let bitcnt = count_one_bits(mwan4.mmx_mask);
@@ -627,7 +628,7 @@ function _nft_set_check_rules(family, zero_check) { // ucode-lsp disable
 	let mark_expr = zero_check
 		? sprintf('meta mark & %s == 0', mwan4.mmx_mask)
 		: sprintf('meta mark & %s != %s', mwan4.mmx_mask, mwan4.mmx_default);
-	let mark_set = sprintf('meta mark set (meta mark & ~%s) | %s', mwan4.mmx_mask, mwan4.mmx_default);
+	let mark_set = sprintf('meta mark set meta mark & %s | %s', mwan4.mmx_mask_inv, mwan4.mmx_default);
 
 	let rules = [];
 	for (let settype in ['custom', 'connected', 'dynamic'])
@@ -678,10 +679,10 @@ function set_general_nftables() {
 	let rules_lines = [
 		'',
 		sprintf('\tchain %s_rules {', NFT_PREFIX),
-		sprintf('\t\t%s jump %s_rules_ipv4', NFT_IPV4, NFT_PREFIX),
+		sprintf('\t\tmeta nfproto ipv4 jump %s_rules_ipv4', NFT_PREFIX),
 	];
 	if (mwan4.no_ipv6 == 0)
-		push(rules_lines, sprintf('\t\t%s jump %s_rules_ipv6', NFT_IPV6, NFT_PREFIX));
+		push(rules_lines, sprintf('\t\tmeta nfproto ipv6 jump %s_rules_ipv6', NFT_PREFIX));
 	push(rules_lines, '\t}');
 	push(L, ...rules_lines);
 
@@ -707,7 +708,7 @@ function set_general_nftables() {
 		push(L, ...ra_exempt);
 
 		// Restore mark from conntrack
-		push(L, sprintf('\t\tct mark & %s != 0 meta mark set (meta mark & ~%s) | (ct mark & %s)', mwan4.mmx_mask, mwan4.mmx_mask, mwan4.mmx_mask));
+		push(L, sprintf('\t\tct mark & %s != 0 meta mark set meta mark & %s | ct mark & %s', mwan4.mmx_mask, mwan4.mmx_mask_inv, mwan4.mmx_mask));
 		// Interface input
 		push(L, sprintf('\t\tmeta mark & %s == 0 jump %s_ifaces_in', mwan4.mmx_mask, NFT_PREFIX));
 		// Pre-rule set checks (mark == 0)
@@ -717,7 +718,7 @@ function set_general_nftables() {
 		// User rules
 		push(L, sprintf('\t\tmeta mark & %s == 0 jump %s_rules', mwan4.mmx_mask, NFT_PREFIX));
 		// Save to conntrack (preserve non-mwan4 bits)
-		push(L, sprintf('\t\tct mark set (ct mark & ~%s) | (meta mark & %s)', mwan4.mmx_mask, mwan4.mmx_mask));
+		push(L, sprintf('\t\tct mark set ct mark & %s | meta mark & %s', mwan4.mmx_mask_inv, mwan4.mmx_mask));
 		// Post-rule set checks (mark != default)
 		push(L, ..._nft_set_check_rules('ipv4', false));
 		if (mwan4.no_ipv6 == 0)
@@ -913,8 +914,9 @@ function rebuild_iface_nftfile() {
 				device, mwan4.mmx_mask, mark, iface));
 			push(L, '\t}');
 
-			push(jump_rules, sprintf('\t\tmeta mark & %s == 0 %s jump %s',
-				mwan4.mmx_mask, nftflag, chain_name));
+			let nfproto = (family == 'ipv4') ? 'ipv4' : 'ipv6';
+			push(jump_rules, sprintf('\t\tmeta mark & %s == 0 meta nfproto %s jump %s',
+				mwan4.mmx_mask, nfproto, chain_name));
 		}
 	});
 
