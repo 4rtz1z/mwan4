@@ -627,9 +627,9 @@ function set_general_rules() {
 function _nft_set_check_rules(family, zero_check) { // ucode-lsp disable
 	let flag = (family == 'ipv4') ? NFT_IPV4 : NFT_IPV6;
 	let mark_expr = zero_check
-		? sprintf('meta mark & %s == 0', mwan4.mmx_mask)
-		: sprintf('meta mark & %s != %s', mwan4.mmx_mask, mwan4.mmx_default);
-	let mark_set = sprintf('meta mark set meta mark & %s | %s', mwan4.mmx_mask_inv, mwan4.mmx_default);
+		? sprintf('meta mark and %s == 0', mwan4.mmx_mask)
+		: sprintf('meta mark and %s != %s', mwan4.mmx_mask, mwan4.mmx_default);
+	let mark_set = sprintf('meta mark set mark and %s or %s', mwan4.mmx_mask_inv, mwan4.mmx_default);
 
 	let rules = [];
 	for (let settype in ['custom', 'connected', 'dynamic'])
@@ -709,17 +709,17 @@ function set_general_nftables() {
 		push(L, ...ra_exempt);
 
 		// Restore mark from conntrack
-		push(L, sprintf('\t\tct mark & %s != 0 meta mark set meta mark & %s | ct mark & %s', mwan4.mmx_mask, mwan4.mmx_mask_inv, mwan4.mmx_mask));
+		push(L, '\t\tct mark != 0 meta mark set ct mark');
 		// Interface input
-		push(L, sprintf('\t\tmeta mark & %s == 0 jump %s_ifaces_in', mwan4.mmx_mask, NFT_PREFIX));
+		push(L, sprintf('\t\tmeta mark and %s == 0 jump %s_ifaces_in', mwan4.mmx_mask, NFT_PREFIX));
 		// Pre-rule set checks (mark == 0)
 		push(L, ..._nft_set_check_rules('ipv4', true));
 		if (mwan4.no_ipv6 == 0)
 			push(L, ..._nft_set_check_rules('ipv6', true));
 		// User rules
-		push(L, sprintf('\t\tmeta mark & %s == 0 jump %s_rules', mwan4.mmx_mask, NFT_PREFIX));
+		push(L, sprintf('\t\tmeta mark and %s == 0 jump %s_rules', mwan4.mmx_mask, NFT_PREFIX));
 		// Save to conntrack (preserve non-mwan4 bits)
-		push(L, sprintf('\t\tct mark set ct mark & %s | meta mark & %s', mwan4.mmx_mask_inv, mwan4.mmx_mask));
+		push(L, '\t\tct mark set meta mark');
 		// Post-rule set checks (mark != default)
 		push(L, ..._nft_set_check_rules('ipv4', false));
 		if (mwan4.no_ipv6 == 0)
@@ -1334,9 +1334,23 @@ function create_iface_rules(iface, device) {
 		delete_iface_rules_family(iface, family);
 
 		let mark = id2mask(id, mwan4.mmx_mask);
-		run(sprintf('%s rule add pref %d iif "%s" lookup %d', ip_cmd, id + 1000, device, id));
-		run(sprintf('%s rule add pref %d fwmark %s/%s lookup %d', ip_cmd, id + 2000, mark, mwan4.mmx_mask, id));
-		run(sprintf('%s rule add pref %d fwmark %s/%s unreachable', ip_cmd, id + 3000, mark, mwan4.mmx_mask));
+		let lookup_cmd = sprintf('%s rule add pref %d fwmark %s/%s lookup %d', ip_cmd, id + 2000, mark, mwan4.mmx_mask, id);
+		let unreachable_cmd = sprintf('%s rule add pref %d fwmark %s/%s unreachable', ip_cmd, id + 3000, mark, mwan4.mmx_mask);
+		let rc;
+
+		LOG('notice', sprintf("adding interface lookup rule for '%s': %s", iface, lookup_cmd));
+		rc = run(lookup_cmd);
+		if (rc != 0)
+			LOG('warn', sprintf("failed to add interface lookup rule for '%s': %s", iface, lookup_cmd));
+		else
+			LOG('notice', sprintf("added interface lookup rule for '%s'", iface));
+
+		LOG('notice', sprintf("adding interface unreachable rule for '%s': %s", iface, unreachable_cmd));
+		rc = run(unreachable_cmd);
+		if (rc != 0)
+			LOG('warn', sprintf("failed to add interface unreachable rule for '%s': %s", iface, unreachable_cmd));
+		else
+			LOG('notice', sprintf("added interface unreachable rule for '%s'", iface));
 	}, device);
 }
 
@@ -1421,7 +1435,7 @@ function report_iface_status() {
 
 function get_strategies_data(family_suffix) {
 	let strategies = {};
-	let chains_out = nft_output(sprintf('list chains inet %s 2>/dev/null', NFT_TABLE));
+	let chains_out = nft_output(sprintf('list table inet %s 2>/dev/null', NFT_TABLE));
 
 	for (let line in split(chains_out, '\n')) {
 		let m = match(line, /chain (mwan4_strategy_(.+)_(ipv4|ipv6))/);
