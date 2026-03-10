@@ -373,8 +373,9 @@ _ensure_init = function() {
 	if (!mwan4.mmx_mask) {
 		mwan4.mmx_mask = uci_get('globals', 'mwan4.mmx_mask') || '0x3F00';
 		mwan4.mmx_mask = lc(mwan4.mmx_mask);
-		mwan4.mmx_mask_inv = sprintf('0x%08x', 0xffffffff & ~(+mwan4.mmx_mask));
 	}
+	if (!mwan4.mmx_mask_inv)
+		mwan4.mmx_mask_inv = sprintf('0x%08x', 0xffffffff & ~(+mwan4.mmx_mask));
 
 	let bitcnt = count_one_bits(mwan4.mmx_mask);
 	let mmdefault = (1 << bitcnt) - 1;
